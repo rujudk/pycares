@@ -166,14 +166,34 @@ def _addrinfo_cb(arg, status, timeouts, res):
 
 def parse_result(query_type, abuf, alen):
     if query_type == _lib.T_A:
+        hostent = _ffi.new("struct hostent **")
         addrttls = _ffi.new("struct ares_addrttl[]", PYCARES_ADDRTTL_SIZE)
         naddrttls = _ffi.new("int*", PYCARES_ADDRTTL_SIZE)
-        parse_status = _lib.ares_parse_a_reply(abuf, alen, _ffi.NULL, addrttls, naddrttls)
+        parse_status = _lib.ares_parse_a_reply(abuf, alen, hostent, addrttls, naddrttls)
         if parse_status != _lib.ARES_SUCCESS:
             result = None
             status = parse_status
         else:
-            result = [ares_query_a_result(addrttls[i]) for i in range(naddrttls[0])]
+            host = hostent[0]
+
+            result = []
+
+            i = 0
+            while host.h_aliases[i] != _ffi.NULL:
+                result.append(ares_query_cname_result_a(host.h_aliases[i]))
+
+                i += 1
+
+            _lib.ares_free_hostent(host)
+
+            for i in range(naddrttls[0]):
+                result.append(ares_query_a_result(addrttls[i]))
+            
+            # if host[0].h_aliases[0] != _ffi.NULL:
+            #     result = ares_query_cname_result(host[0])
+            #     _lib.ares_free_hostent(host[0])
+            # else:
+            #     result = [ares_query_a_result(addrttls[i]) for i in range(naddrttls[0])]
             status = None
     elif query_type == _lib.T_AAAA:
         addrttls = _ffi.new("struct ares_addr6ttl[]", PYCARES_ADDRTTL_SIZE)
@@ -675,6 +695,13 @@ class ares_query_cname_result(AresResult):
         self.cname = maybe_str(_ffi.string(host.h_name))
         self.ttl = -1
 
+class ares_query_cname_result_a(AresResult):
+    __slots__ = ('cname', 'ttl')
+    type = 'CNAME'
+
+    def __init__(self, alias):
+        self.cname = maybe_str(_ffi.string(alias))
+        self.ttl = -1
 
 class ares_query_mx_result(AresResult):
     __slots__ = ('host', 'priority', 'ttl')
